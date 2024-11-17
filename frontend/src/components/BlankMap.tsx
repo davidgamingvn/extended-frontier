@@ -9,6 +9,7 @@ import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import { MultiStepLoader } from "./ui/multi-step-loader";
 
 interface Point {
   id: number;
@@ -27,12 +28,40 @@ export default function BlankMap() {
   const [point, setPoint] = useState<Point | null>(null);
   const [imageDimensions, setImageDimensions] =
     useState<ImageDimensions | null>(null);
-  const [imageUrl, setImageUrl] = useState("/latest_floor_plan.png");
+  const [floorPlanUrl, setFloorPlanUrl] = useState("/latest_floor_plan.png");
+  const [coverageUrl, setCoverageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [extendersCount, setExtendersCount] = useState(2);
   const imageRef = useRef<HTMLImageElement>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const loaderRef = useRef<{ setCurrentState: (state: number) => void }>(null);
+
+  const loadingStates = [
+    { text: "Uploading file" },
+    { text: "Uploading router positions" },
+    { text: "Analyzing" },
+    { text: "Getting your best coverage" },
+    { text: "Success" },
+  ];
+
+  useEffect(() => {
+    const fetchFloorPlan = async () => {
+      try {
+        const response = await fetch(`${BACKEND_URL}/get_floor_plan`);
+        if (!response.ok) {
+          throw new Error("Failed to fetch floor plan image");
+        }
+        const imageBlob = await response.blob();
+        const imageObjectUrl = URL.createObjectURL(imageBlob);
+        setFloorPlanUrl(imageObjectUrl);
+      } catch (error) {
+        console.error("Error fetching floor plan:", error);
+      }
+    };
+
+    fetchFloorPlan();
+  }, []);
 
   useEffect(() => {
     const updateImageDimensions = () => {
@@ -69,7 +98,7 @@ export default function BlankMap() {
       resizeObserver.disconnect();
       window.removeEventListener("resize", updateImageDimensions);
     };
-  }, [imageUrl]);
+  }, [floorPlanUrl]);
 
   const handleImageClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!imageDimensions || isLoading) return;
@@ -122,9 +151,11 @@ export default function BlankMap() {
 
     try {
       setIsLoading(true);
+      loaderRef.current?.setCurrentState(0);
 
       const formData = new FormData();
       formData.append("file", fileInputRef.current.files[0]);
+      loaderRef.current?.setCurrentState(1);
 
       if (!imageDimensions) {
         toast({
@@ -142,6 +173,7 @@ export default function BlankMap() {
         (point.y / imageDimensions.height).toString()
       );
       formData.append("n_extenders", extendersCount.toString());
+      loaderRef.current?.setCurrentState(2);
 
       // Save the point
       const saveResponse = await fetch(`${BACKEND_URL}/analyze`, {
@@ -152,6 +184,7 @@ export default function BlankMap() {
       if (!saveResponse.ok) {
         throw new Error("Failed to save map");
       }
+      loaderRef.current?.setCurrentState(3);
 
       // Get the updated image
       const data = await saveResponse.json();
@@ -167,9 +200,10 @@ export default function BlankMap() {
       const imageBlob = await imageResponse.blob();
       const imageObjectUrl = URL.createObjectURL(imageBlob);
 
-      // Update the image with a cache-busting parameter
-      setImageUrl(imageObjectUrl);
+      // Update the coverage image with a cache-busting parameter
+      setCoverageUrl(imageObjectUrl);
       setPoint(null); // Clear the point since it's now part of the image
+      loaderRef.current?.setCurrentState(4);
 
       toast({
         title: "Success",
@@ -265,45 +299,76 @@ export default function BlankMap() {
           </Card>
         </div>
 
-        <div className="md:w-3/4">
-          <div
-            ref={imageContainerRef}
-            className={`relative w-100 h-[calc(100vh-12rem)] bg-muted rounded-lg shadow-inner overflow-hidden ${
-              isLoading ? "cursor-wait" : "cursor-crosshair"
-            } border`}
-            onClick={handleImageClick}
-          >
-            <div className="relative w-full h-full flex items-center justify-center">
-              <div ref={imageRef} className="relative">
-                <Image
-                  src={imageUrl}
-                  alt="Floor Plan"
-                  className="pointer-events-none max-h-full max-w-full object-contain"
-                  width={400}
-                  height={400}
-                  priority
-                />
-                {imageDimensions && point && (
-                  <div
-                    key={point.id}
-                    className="absolute w-10 h-10 -ml-4 -mt-4 rounded-full flex items-center justify-center cursor-pointer transition-all hover:scale-110 bg-red-600"
-                    style={{ left: point.x, top: point.y }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleRemovePoint();
-                    }}
-                  >
-                    <Router className="w-6 h-6 text-white" />
-                  </div>
-                )}
+        <div className="md:w-3/4 flex flex-col gap-8">
+          <div className="flex flex-col md:flex-row gap-8">
+            <div
+              ref={imageContainerRef}
+              className={`relative w-full h-full bg-transparent rounded-lg shadow-inner overflow-hidden ${
+                isLoading ? "cursor-wait" : "cursor-crosshair"
+              } border`}
+              onClick={handleImageClick}
+            >
+              <div className="relative w-full h-full flex items-center justify-center">
+                <div ref={imageRef} className="relative">
+                  <Image
+                    src={floorPlanUrl}
+                    alt="Floor Plan"
+                    className="pointer-events-none max-h-full max-w-full object-contain"
+                    width={400}
+                    height={400}
+                    priority
+                  />
+                  {imageDimensions && point && (
+                    <div
+                      key={point.id}
+                      className="absolute w-10 h-10 -ml-4 -mt-4 rounded-full flex items-center justify-center cursor-pointer transition-all hover:scale-110 bg-red-600"
+                      style={{ left: point.x, top: point.y }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemovePoint();
+                      }}
+                    >
+                      <Router className="w-6 h-6 text-white" />
+                    </div>
+                  )}
+                </div>
               </div>
+              <Card className="absolute bottom-4 right-4 p-2 text-sm">
+                Click to add router • Click on the router to remove
+              </Card>
             </div>
-            <Card className="absolute bottom-4 right-4 p-2 text-sm">
-              Click to add router • Click on the router to remove
-            </Card>
+
+            {coverageUrl && (
+              <div
+                className={`relative w-full h-full bg-muted rounded-lg shadow-inner overflow-hidden border`}
+              >
+                <div className="relative w-full h-full flex items-center justify-center">
+                  <Image
+                    src={coverageUrl}
+                    alt="Coverage Map"
+                    className="pointer-events-none max-h-full max-w-full object-contain"
+                    width={400}
+                    height={400}
+                    priority
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {isLoading && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+          <MultiStepLoader
+            ref={loaderRef}
+            loadingStates={loadingStates}
+            loading={isLoading}
+            duration={5000}
+            loop={false}
+          />
+        </div>
+      )}
     </div>
   );
 }
