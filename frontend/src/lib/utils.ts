@@ -51,4 +51,4 @@ export const steps = [
   },
 ];
 
-export const BACKEND_URL = "http://35.232.2.50/";
+export const BACKEND_URL = "http://34.55.193.30/";
