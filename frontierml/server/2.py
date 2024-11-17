@@ -7,8 +7,13 @@ from toobj import usdz_to_obj
 import time
 
 app = Flask(__name__)
-UPLOAD_FOLDER = 'uploads'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Create uploads folder in the same directory as the script
+UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 IMAGE_SIZE = 100
+
+# Create uploads directory if it doesn't exist
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def get_interior_mask(layout):
@@ -72,7 +77,7 @@ def simulate_wifi(layout, device_positions, interior, iterations=50, decay_facto
         coverage[pos[0], pos[1]] = 1.0
 
     # Larger kernel for more gradual spread
-    kernel_size = 10
+    kernel_size = 5
     kernel = np.array([
         [0.05, 0.1, 0.15, 0.1, 0.05],
         [0.1, 0.2, 0.25, 0.2, 0.1],
@@ -80,7 +85,6 @@ def simulate_wifi(layout, device_positions, interior, iterations=50, decay_facto
         [0.1, 0.2, 0.25, 0.2, 0.1],
         [0.05, 0.1, 0.15, 0.1, 0.05]
     ])
-
     # Multiple propagation passes with different characteristics
     for i in range(iterations):
         # Apply propagation kernel
@@ -221,14 +225,24 @@ def analyze():
         return jsonify({'error': 'No file uploaded'}), 400
 
     try:
+        # Ensure upload directory exists again just in case
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
         file = request.files['file']
         router_x = float(request.form['router_x'])
         router_y = float(request.form['router_y'])
         n_extenders = int(request.form.get('n_extenders', 2))
 
-        # Save and convert files
+        # Use absolute paths for file saving
         usdz_path = os.path.join(UPLOAD_FOLDER, 'input.usdz')
         obj_path = os.path.join(UPLOAD_FOLDER, 'converted.obj')
+
+        # Debug print
+        print(f"Saving files to: {UPLOAD_FOLDER}")
+        print(f"USDZ path: {usdz_path}")
+        print(f"OBJ path: {obj_path}")
+
+        # Save the uploaded file
         file.save(usdz_path)
 
         processed_count = usdz_to_obj(usdz_path, obj_path)
@@ -271,9 +285,19 @@ def analyze():
         for pos in extender_positions:
             cv2.circle(heatmap, (pos[1], pos[0]), 2, (0, 255, 0), -1)
 
-        # In the analyze route, after creating the heatmap:
+        # Save the coverage image with absolute path
         coverage_image_path = os.path.join(UPLOAD_FOLDER, 'latest_coverage.png')
-        cv2.imwrite(coverage_image_path, heatmap)
+        print(f"Saving coverage image to: {coverage_image_path}")
+        success = cv2.imwrite(coverage_image_path, heatmap)
+
+        if not success:
+            print("Failed to save coverage image!")
+            return jsonify({'error': 'Failed to save coverage image'}), 500
+
+        # Verify the file was saved
+        if not os.path.exists(coverage_image_path):
+            print("Coverage image file does not exist after saving!")
+            return jsonify({'error': 'Coverage image not found after saving'}), 500
 
         # Normalize positions to 0-1 range
         extender_positions_normalized = [
@@ -288,13 +312,49 @@ def analyze():
         })
 
     except Exception as e:
+        print(f"Error in analyze route: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/get_image')
 @app.route('/get_image/<timestamp>')
 def get_image(timestamp=None):
     coverage_image_path = os.path.join(UPLOAD_FOLDER, 'latest_coverage.png')
-    return send_file(coverage_image_path, mimetype='image/png')
+    print(f"Attempting to serve image from: {coverage_image_path}")
+
+    # Create a default image if none exists
+    if not os.path.exists(coverage_image_path):
+        print("Coverage image not found, creating default image")
+        default_image = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.uint8)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(default_image, 'No analysis yet', (10, IMAGE_SIZE//2),
+                   font, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Ensure the uploads directory exists
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+        # Save the default image
+        success = cv2.imwrite(coverage_image_path, default_image)
+        if not success:
+            print("Failed to save default image!")
+            return jsonify({'error': 'Failed to save default image'}), 500
+
+    try:
+        if not os.path.exists(coverage_image_path):
+            print("Image still doesn't exist after attempted creation!")
+            return jsonify({'error': 'Image file not found'}), 404
+
+        response = send_file(
+            coverage_image_path,
+            mimetype='image/png'
+        )
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+    except Exception as e:
+        print(f"Error serving image: {str(e)}")
+        return jsonify({'error': 'Unable to load coverage image'}), 500
 
 if __name__ == '__main__':
+    print(f"Server starting with upload folder at: {UPLOAD_FOLDER}")
     app.run(debug=True)
