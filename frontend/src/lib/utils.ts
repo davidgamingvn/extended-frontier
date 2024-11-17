@@ -1,9 +1,9 @@
-import { clsx, type ClassValue } from "clsx"
-import { MapPin, Zap, Wifi } from "lucide-react";
-import { twMerge } from "tailwind-merge"
+import { clsx, type ClassValue } from "clsx";
+import { MapPin, Wifi, Zap } from "lucide-react";
+import { twMerge } from "tailwind-merge";
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
+  return twMerge(clsx(inputs));
 }
 
 export const features = [
@@ -51,4 +51,4 @@ export const steps = [
   },
 ];
 
-export const BACKEND_URL = 'http://127.0.0.1:5000'
+export const BACKEND_URL = "http://34.55.193.30/";
