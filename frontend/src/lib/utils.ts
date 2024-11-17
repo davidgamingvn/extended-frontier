@@ -50,3 +50,5 @@ export const steps = [
     image: "/assets/step-3.png",
   },
 ];
+
+export const BACKEND_URL = 'http://127.0.0.1:5000'

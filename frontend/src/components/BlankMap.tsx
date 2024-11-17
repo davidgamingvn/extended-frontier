@@ -3,19 +3,17 @@
 import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Router, Plug } from "lucide-react";
-
-type PointType = "router" | "outlet";
+import { Router } from "lucide-react";
+import { Label } from "./ui/label";
+import { Input } from "./ui/input";
+import { BACKEND_URL } from "@/lib/utils";
 
 interface Point {
   id: number;
   x: number;
   y: number;
-  type: PointType;
 }
 
 interface ImageDimensions {
@@ -26,14 +24,15 @@ interface ImageDimensions {
 }
 
 export default function BlankMap() {
-  const [points, setPoints] = useState<Point[]>([]);
-  const [selectedType, setSelectedType] = useState<PointType>("outlet");
+  const [point, setPoint] = useState<Point | null>(null);
   const [imageDimensions, setImageDimensions] =
     useState<ImageDimensions | null>(null);
-  const [imageUrl, setImageUrl] = useState("/floorplan1.jpg");
+  const [imageUrl, setImageUrl] = useState("/latest_floor_plan.png");
   const [isLoading, setIsLoading] = useState(false);
+  const [extendersCount, setExtendersCount] = useState(2);
   const imageRef = useRef<HTMLImageElement>(null);
   const imageContainerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const updateImageDimensions = () => {
@@ -70,7 +69,7 @@ export default function BlankMap() {
       resizeObserver.disconnect();
       window.removeEventListener("resize", updateImageDimensions);
     };
-  }, [imageUrl]); // Added imageUrl as dependency to recalculate dimensions when image changes
+  }, [imageUrl]);
 
   const handleImageClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!imageDimensions || isLoading) return;
@@ -88,75 +87,89 @@ export default function BlankMap() {
       return;
     }
 
-    if (selectedType === "router" && points.some((p) => p.type === "router")) {
+    const relativeX = x - imageDimensions.left;
+    const relativeY = y - imageDimensions.top;
+
+    setPoint({
+      id: Date.now(),
+      x: relativeX,
+      y: relativeY,
+    });
+  };
+
+  const handleRemovePoint = () => {
+    setPoint(null);
+  };
+
+  const handleDone = async () => {
+    if (!point) {
       toast({
-        title: "Cannot add router",
-        description: "Only one router can be added to the map.",
+        title: "No router added",
+        description: "Please add a router to the map before proceeding.",
         variant: "destructive",
       });
       return;
     }
 
-    const relativeX = x - imageDimensions.left;
-    const relativeY = y - imageDimensions.top;
+    if (!fileInputRef.current?.files?.[0]) {
+      toast({
+        title: "No floor plan uploaded",
+        description: "Please upload a floor plan image before proceeding.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-    setPoints([
-      ...points,
-      {
-        id: Date.now(),
-        x: relativeX,
-        y: relativeY,
-        type: selectedType,
-      },
-    ]);
-  };
-
-  const handleRemovePoint = (id: number) => {
-    setPoints(points.filter((point) => point.id !== id));
-  };
-
-  const handleDone = async () => {
     try {
       setIsLoading(true);
 
-      // Save the points
-      const saveResponse = await fetch("/api/save-map", {
+      const formData = new FormData();
+      formData.append("file", fileInputRef.current.files[0]);
+
+      if (!imageDimensions) {
+        toast({
+          title: "Error",
+          description: "Image dimensions are not available.",
+          variant: "destructive",
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      formData.append("router_x", (point.x / imageDimensions.width).toString());
+      formData.append(
+        "router_y",
+        (point.y / imageDimensions.height).toString()
+      );
+      formData.append("n_extenders", extendersCount.toString());
+
+      // Save the point
+      const saveResponse = await fetch(`${BACKEND_URL}/analyze`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          points: points.map((point) => ({
-            x: point.x,
-            y: point.y,
-            type: point.type,
-          })),
-          mapDimensions: imageDimensions,
-        }),
+        body: formData,
       });
 
       if (!saveResponse.ok) {
-        // throw new Error('Failed to save map')
+        throw new Error("Failed to save map");
       }
 
       // Get the updated image
-      const imageResponse = await fetch("/api/get-map");
-      if (!imageResponse.ok) {
-        // throw new Error('Failed to get updated map')
-      }
-
-      const { imageUrl: newImageUrl } = await imageResponse.json();
+      const data = await saveResponse.json();
+      console.log(data);
 
       // Update the image with a cache-busting parameter
-      setImageUrl(`${newImageUrl}?t=${Date.now()}`);
-      setPoints([]); // Clear the points since they're now part of the image
+      setImageUrl(data.image + `?t=${Date.now()}`);
+      setPoint(null); // Clear the point since it's now part of the image
 
       toast({
         title: "Success",
         description: "Map updated successfully!",
       });
     } catch (error) {
-      //   console.error('Error updating map:', error)
+      console.error("Error updating map:", error);
       toast({
         title: "Error",
         description: "Failed to update map. Please try again.",
@@ -172,8 +185,7 @@ export default function BlankMap() {
       <div className="border-b">
         <div className="container mx-auto px-6 py-4 flex justify-between items-center">
           <h1 className="text-lg font-medium">
-            Map the location of your router and electrical outlets in
-            your house
+            Map the location of your router in your house
           </h1>
           <Button
             onClick={handleDone}
@@ -191,48 +203,57 @@ export default function BlankMap() {
           <Card>
             <CardHeader>
               <CardTitle className="text-xl font-semibold text-red-600">
-                Add Network Points
+                Add Router
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <RadioGroup
-                value={selectedType}
-                onValueChange={(value: PointType) => setSelectedType(value)}
-                className="space-y-2"
-              >
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem
-                    value="router"
-                    id="router"
-                    className="text-red-600"
-                  />
-                  <Label
-                    htmlFor="router"
-                    className="flex items-center space-x-2 cursor-pointer"
-                  >
-                    <div className="flex flex-row items-center gap-2">
-                      <Router className="w-5 h-5" />
-                      <span>Router (Max 1)</span>
-                    </div>
-                  </Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem
-                    value="outlet"
-                    id="outlet"
-                    className="text-red-600"
-                  />
-                  <Label
-                    htmlFor="outlet"
-                    className="flex items-center space-x-2 cursor-pointer"
-                  >
-                    <div className="flex flex-row items-center gap-2">
-                      <Plug className="w-5 h-5" />
-                      <span>Outlet</span>
-                    </div>
-                  </Label>
-                </div>
-              </RadioGroup>
+              <p className="text-sm text-gray-600">
+                Click on the floor plan to add your router. You can only add one
+                router to the map.
+              </p>
+              <div className="flex items-center space-x-2 mt-4">
+                <Router className="w-5 h-5 text-red-600" />
+                <span>Router</span>
+              </div>
+            </CardContent>
+            <CardHeader>
+              <CardTitle className="text-xl font-semibold text-red-600">
+                How many extenders do you need?
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="w-full max-w-xs">
+                <Label
+                  htmlFor="extenders-count"
+                  className="text-sm font-medium text-gray-700"
+                >
+                  Number of Extenders
+                </Label>
+                <Input
+                  id="extenders-count"
+                  type="number"
+                  min={0}
+                  value={extendersCount}
+                  onChange={(e) =>
+                    setExtendersCount(parseInt(e.target.value) || 0)
+                  }
+                  className="mt-1"
+                />
+              </div>
+              <div className="w-full max-w-xs mt-4">
+                <Label
+                  htmlFor="file-upload"
+                  className="text-sm font-medium text-gray-700"
+                >
+                  Upload Floor Plan
+                </Label>
+                <Input
+                  id="file-upload"
+                  type="file"
+                  ref={fileInputRef}
+                  className="mt-1"
+                />
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -240,7 +261,7 @@ export default function BlankMap() {
         <div className="md:w-3/4">
           <div
             ref={imageContainerRef}
-            className={`relative w-full h-[calc(100vh-12rem)] bg-muted rounded-lg shadow-inner overflow-hidden ${
+            className={`relative w-100 h-[calc(100vh-12rem)] bg-muted rounded-lg shadow-inner overflow-hidden ${
               isLoading ? "cursor-wait" : "cursor-crosshair"
             } border`}
             onClick={handleImageClick}
@@ -251,34 +272,27 @@ export default function BlankMap() {
                   src={imageUrl}
                   alt="Floor Plan"
                   className="pointer-events-none max-h-full max-w-full object-contain"
-                  width={800}
-                  height={600}
+                  width={400}
+                  height={400}
                   priority
                 />
-                {imageDimensions &&
-                  points.map((point) => (
-                    <div
-                      key={point.id}
-                      className={`absolute w-10 h-10 -ml-4 -mt-4 rounded-full flex items-center justify-center cursor-pointer transition-all hover:scale-110 ${
-                        point.type === "router" ? "bg-red-600" : "bg-red-500"
-                      }`}
-                      style={{ left: point.x, top: point.y }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemovePoint(point.id);
-                      }}
-                    >
-                      {point.type === "router" ? (
-                        <Router className="w-6 h-6 text-white" />
-                      ) : (
-                        <Plug className="w-6 h-6 text-white" />
-                      )}
-                    </div>
-                  ))}
+                {imageDimensions && point && (
+                  <div
+                    key={point.id}
+                    className="absolute w-10 h-10 -ml-4 -mt-4 rounded-full flex items-center justify-center cursor-pointer transition-all hover:scale-110 bg-red-600"
+                    style={{ left: point.x, top: point.y }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRemovePoint();
+                    }}
+                  >
+                    <Router className="w-6 h-6 text-white" />
+                  </div>
+                )}
               </div>
             </div>
             <Card className="absolute bottom-4 right-4 p-2 text-sm">
-              Click to add points • Click on a point to remove
+              Click to add router • Click on the router to remove
             </Card>
           </div>
         </div>
