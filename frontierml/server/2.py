@@ -18,9 +18,8 @@ def get_interior_mask(layout):
     exterior = mask.copy()
     cv2.floodFill(exterior, None, (0,0), 0)
     return (exterior > 0).astype(np.uint8)
-
 def convert_obj_to_2d(obj_file):
-    """Convert 3D OBJ to 2D top-down view"""
+    """Convert 3D OBJ to 2D top-down view with 5% padding"""
     vertices = []
     faces = []
 
@@ -36,6 +35,14 @@ def convert_obj_to_2d(obj_file):
     vertices = np.array(vertices)
     min_coords = vertices.min(axis=0)
     max_coords = vertices.max(axis=0)
+
+    # Add 5% padding to the coordinate range
+    coord_range = max_coords - min_coords
+    padding = coord_range * 0.05
+    min_coords -= padding
+    max_coords += padding
+
+    # Scale vertices to image space with padding
     vertices = ((vertices - min_coords) / (max_coords - min_coords) * (IMAGE_SIZE-2) + 1).astype(int)
 
     img = np.zeros((IMAGE_SIZE, IMAGE_SIZE), dtype=np.uint8)
