@@ -54,50 +54,89 @@ def convert_obj_to_2d(obj_file):
     interior = get_interior_mask(img)
     return img, interior
 
-def simulate_wifi(layout, device_positions, interior, iterations=30, decay_factor=0.85):
+def simulate_wifi(layout, device_positions, interior, iterations=50, decay_factor=0.92):
     """
-    Simulate WiFi propagation from multiple devices (router and extenders)
-    Each device has equal strength
+    Simulate WiFi propagation with more gradual signal distribution
+
+    Parameters:
+    - layout: 2D array of walls
+    - device_positions: list of (y,x) coordinates for WiFi devices
+    - interior: mask of interior space
+    - iterations: number of propagation steps (increased for better spread)
+    - decay_factor: signal decay per step (increased for better reach)
     """
     coverage = np.zeros_like(layout, dtype=float)
 
-    # Set all device positions to full strength
+    # Initialize device positions with full strength
     for pos in device_positions:
         coverage[pos[0], pos[1]] = 1.0
 
-    kernel = np.array([[0.1, 0.2, 0.1],
-                        [0.2, 0.0, 0.2],
-                        [0.1, 0.2, 0.1]])
+    # Larger kernel for more gradual spread
+    kernel_size = 10
+    kernel = np.array([
+        [0.05, 0.1, 0.15, 0.1, 0.05],
+        [0.1, 0.2, 0.25, 0.2, 0.1],
+        [0.15, 0.25, 0.0, 0.25, 0.15],
+        [0.1, 0.2, 0.25, 0.2, 0.1],
+        [0.05, 0.1, 0.15, 0.1, 0.05]
+    ])
 
-    for _ in range(iterations):
+    # Multiple propagation passes with different characteristics
+    for i in range(iterations):
+        # Apply propagation kernel
         new_coverage = cv2.filter2D(coverage, -1, kernel)
-        new_coverage[layout > 0] *= 0.3  # Walls reduce signal
-        new_coverage[interior == 0] = 0  # No signal outside house
+
+        # Progressive wall attenuation (walls affect signal less in initial propagation)
+        wall_factor = 0.5 + (0.3 * i / iterations)  # Starts at 0.5, gradually increases to 0.8
+        new_coverage[layout > 0] *= wall_factor
+
+        # Keep signal within interior
+        new_coverage[interior == 0] = 0
+
+        # Apply distance-based decay
         new_coverage *= decay_factor
 
-        # Restore full strength at all device positions
+        # Boost weak signals slightly to maintain better coverage
+        weak_signals = (new_coverage > 0.1) & (new_coverage < 0.3)
+        new_coverage[weak_signals] *= 1.1
+
+        # Ensure device positions maintain full strength
         for pos in device_positions:
             new_coverage[pos[0], pos[1]] = 1.0
 
+            # Add small area of strong signal around devices
+            y, x = pos
+            radius = 2
+            y_min, y_max = max(0, y-radius), min(coverage.shape[0], y+radius+1)
+            x_min, x_max = max(0, x-radius), min(coverage.shape[1], x+radius+1)
+            new_coverage[y_min:y_max, x_min:x_max] = np.maximum(
+                new_coverage[y_min:y_max, x_min:x_max],
+                0.8
+            )
+
         coverage = new_coverage
+
+    # Final normalization to ensure good distribution
+    coverage = np.clip(coverage * 1.2, 0, 1)  # Boost signals slightly
+
+    # Smooth transition between strong and weak signals
+    coverage = cv2.GaussianBlur(coverage, (5,5), 1)
 
     return coverage
 
 def find_extender_positions(layout, interior, router_pos, n_extenders):
-    """Find optimal positions for multiple extenders"""
+    """Find optimal positions for multiple extenders with updated coverage threshold"""
     extender_positions = []
     coverage_maps = []
 
     # Initial coverage from router
     router_coverage = simulate_wifi(layout, [router_pos], interior)
 
-    # Find positions for each extender
     for _ in range(n_extenders):
         best_coverage = 0
         best_pos = None
         best_coverage_map = None
 
-        # Only consider interior points
         y_coords, x_coords = np.where(interior > 0)
 
         # Sample interior positions
@@ -109,11 +148,11 @@ def find_extender_positions(layout, interior, router_pos, n_extenders):
 
             # Only consider positions far enough from router and other extenders
             too_close = False
-            if dist < IMAGE_SIZE * 0.3:  # Too close to router
+            if dist < IMAGE_SIZE * 0.25:  # Slightly reduced minimum distance
                 continue
 
             for ext_pos in extender_positions:
-                if np.sqrt((y - ext_pos[0])**2 + (x - ext_pos[1])**2) < IMAGE_SIZE * 0.3:
+                if np.sqrt((y - ext_pos[0])**2 + (x - ext_pos[1])**2) < IMAGE_SIZE * 0.25:
                     too_close = True
                     break
 
@@ -124,8 +163,8 @@ def find_extender_positions(layout, interior, router_pos, n_extenders):
             current_devices = [router_pos] + extender_positions + [(y, x)]
             total_coverage = simulate_wifi(layout, current_devices, interior)
 
-            # Score based on total coverage area
-            coverage_score = np.sum(total_coverage > 0.2) / (IMAGE_SIZE * IMAGE_SIZE)
+            # Score based on total coverage area (lowered threshold for better distribution)
+            coverage_score = np.sum(total_coverage > 0.15) / (IMAGE_SIZE * IMAGE_SIZE)
 
             if coverage_score > best_coverage:
                 best_coverage = coverage_score
