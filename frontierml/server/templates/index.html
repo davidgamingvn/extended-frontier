@@ -1,0 +1,239 @@
+<!doctype html>
+<html>
+    <head>
+        <title>WiFi Coverage Analyzer</title>
+        <style>
+            body {
+                font-family: Arial, sans-serif;
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 20px;
+            }
+
+            .dropzone {
+                border: 2px dashed #ccc;
+                border-radius: 4px;
+                padding: 20px;
+                text-align: center;
+                margin: 20px 0;
+                cursor: pointer;
+            }
+
+            .dropzone.dragover {
+                background-color: #e1e1e1;
+                border-color: #999;
+            }
+
+            #coverage-map {
+                max-width: 100%;
+                margin: 20px 0;
+            }
+
+            .form-group {
+                margin: 20px 0;
+            }
+
+            .extender-position {
+                background-color: #f5f5f5;
+                padding: 10px;
+                margin: 5px 0;
+                border-radius: 4px;
+            }
+
+            .router-position {
+                background-color: #e8f5e9;
+                padding: 10px;
+                margin: 5px 0;
+                border-radius: 4px;
+            }
+
+            #loading {
+                display: none;
+                text-align: center;
+                margin: 20px 0;
+            }
+
+            .error {
+                color: red;
+                margin: 10px 0;
+            }
+
+            label {
+                display: block;
+                margin-bottom: 5px;
+            }
+
+            input[type="number"] {
+                width: 80px;
+                padding: 5px;
+            }
+
+            button {
+                background-color: #4caf50;
+                color: white;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+            }
+
+            button:hover {
+                background-color: #45a049;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>WiFi Coverage Analyzer</h1>
+
+        <div class="dropzone" id="drop-zone">
+            Drop USDZ file here or click to select
+            <input
+                type="file"
+                id="file-input"
+                style="display: none"
+                accept=".usdz"
+            />
+        </div>
+
+        <div class="form-group">
+            <label for="router-x">Main Router X position (%):</label>
+            <input type="number" id="router-x" value="50" min="0" max="100" />
+        </div>
+
+        <div class="form-group">
+            <label for="router-y">Main Router Y position (%):</label>
+            <input type="number" id="router-y" value="50" min="0" max="100" />
+        </div>
+
+        <div class="form-group">
+            <label for="n-extenders">Number of extenders to find:</label>
+            <input type="number" id="n-extenders" value="2" min="1" max="5" />
+        </div>
+
+        <div id="loading">Analyzing coverage...</div>
+
+        <div id="error" class="error"></div>
+
+        <div id="results" style="display: none">
+            <h2>Results</h2>
+            <div id="stats"></div>
+            <img id="coverage-map" style="display: none" />
+        </div>
+
+        <script>
+            const dropZone = document.getElementById("drop-zone");
+            const fileInput = document.getElementById("file-input");
+            const loading = document.getElementById("loading");
+            const error = document.getElementById("error");
+            const results = document.getElementById("results");
+            const stats = document.getElementById("stats");
+            const coverageMap = document.getElementById("coverage-map");
+
+            // Handle drag and drop
+            dropZone.addEventListener("dragover", (e) => {
+                e.preventDefault();
+                dropZone.classList.add("dragover");
+            });
+
+            dropZone.addEventListener("dragleave", () => {
+                dropZone.classList.remove("dragover");
+            });
+
+            dropZone.addEventListener("drop", (e) => {
+                e.preventDefault();
+                dropZone.classList.remove("dragover");
+                handleFile(e.dataTransfer.files[0]);
+            });
+
+            dropZone.addEventListener("click", () => {
+                fileInput.click();
+            });
+
+            fileInput.addEventListener("change", (e) => {
+                handleFile(e.target.files[0]);
+            });
+
+            function handleFile(file) {
+                if (!file || !file.name.endsWith(".usdz")) {
+                    error.textContent = "Please select a USDZ file";
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append("file", file);
+                formData.append(
+                    "router_x",
+                    document.getElementById("router-x").value / 100,
+                );
+                formData.append(
+                    "router_y",
+                    document.getElementById("router-y").value / 100,
+                );
+                formData.append(
+                    "n_extenders",
+                    document.getElementById("n-extenders").value,
+                );
+
+                error.textContent = "";
+                loading.style.display = "block";
+                results.style.display = "none";
+
+                fetch("/analyze", {
+                    method: "POST",
+                    body: formData,
+                })
+                    .then((response) => response.json())
+                    .then((data) => {
+                        if (data.error) {
+                            throw new Error(data.error);
+                        }
+
+                        // Display results
+                        loading.style.display = "none";
+                        results.style.display = "block";
+
+                        // Format router and extender positions
+                        let positionsHtml = `
+                            <div class="router-position">
+                                <strong>Main Router:</strong>
+                                (${document.getElementById("router-x").value}%, ${document.getElementById("router-y").value}%)
+                            </div>
+                        `;
+
+                        if (
+                            data.extender_positions &&
+                            data.extender_positions.length > 0
+                        ) {
+                            positionsHtml += data.extender_positions
+                                .map(
+                                    (pos, index) => `
+                                    <div class="extender-position">
+                                        <strong>Extender ${index + 1}:</strong>
+                                        (${(pos.x * 100).toFixed(1)}%, ${(pos.y * 100).toFixed(1)}%)
+                                    </div>
+                                `,
+                                )
+                                .join("");
+                        }
+
+                        // Update stats
+                        stats.innerHTML = `
+                            <div class="positions">
+                                ${positionsHtml}
+                            </div>
+                            <p>Coverage Score: ${(data.coverage_score * 100).toFixed(1)}%</p>
+                        `;
+
+                        // Show coverage map
+                        const timestamp = new Date().getTime();
+                        coverageMap.src = `/get_image?t=${timestamp}`; // Changed from data.image
+                        coverageMap.style.display = "block";
+                    })
+                    .catch((err) => {
+                        loading.style.display = "none";
+                        error.textContent = err.message;
+                    });
+            }
+        </script>
+    </body>
+</html>
