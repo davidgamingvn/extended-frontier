@@ -52,4 +52,4 @@ export const steps = [
 ];
 
 export const BACKEND_URL =
-  "https://frontiermap-backend-684147459334.us-central1.run.app/";
+  "http://127.0.0.1:5000";

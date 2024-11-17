@@ -281,7 +281,7 @@ export default function BlankMap() {
                   Upload Floor Plan
                 </Label>
                 <Input
-                  ref={fileInputRef}
+                  ref={(ref) => (fileInputRef.current = ref)}
                   id="file-upload"
                   type="file"
                   accept=".usdz"
