@@ -3,13 +3,15 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
-import { BACKEND_URL } from "@/lib/utils";
 import { Router } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
+import { BACKEND_URL } from "@/lib/utils";
 import { MultiStepLoader } from "./ui/multi-step-loader";
+import useFloorPlanUpload from "@/hooks/use-file-upload";
+import Loader from "./Loader";
 
 interface Point {
   id: number;
@@ -28,7 +30,6 @@ export default function BlankMap() {
   const [point, setPoint] = useState<Point | null>(null);
   const [imageDimensions, setImageDimensions] =
     useState<ImageDimensions | null>(null);
-  const [floorPlanUrl, setFloorPlanUrl] = useState("/default_floor_plan.png");
   const [coverageUrl, setCoverageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [extendersCount, setExtendersCount] = useState(2);
@@ -36,6 +37,7 @@ export default function BlankMap() {
   const imageContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const loaderRef = useRef<{ setCurrentState: (state: number) => void }>(null);
+  const { floorPlanUrl, isUploading, uploadFile } = useFloorPlanUpload();
 
   const loadingStates = [
     { text: "Uploading file" },
@@ -44,27 +46,6 @@ export default function BlankMap() {
     { text: "Getting your best coverage" },
     { text: "Success" },
   ];
-
-  useEffect(() => {
-    const fetchFloorPlan = async () => {
-      try {
-        let timestamp = new Date().getTime();
-        const response = await fetch(
-          `${BACKEND_URL}/get_floor_plan?t=${timestamp}`
-        );
-        if (!response.ok) {
-          throw new Error("Failed to fetch floor plan image");
-        }
-        const imageBlob = await response.blob();
-        const imageObjectUrl = URL.createObjectURL(imageBlob);
-        setFloorPlanUrl(imageObjectUrl);
-      } catch (error) {
-        console.error("Error fetching floor plan:", error);
-      }
-    };
-
-    fetchFloorPlan();
-  }, [coverageUrl]);
 
   useEffect(() => {
     const updateImageDimensions = () => {
@@ -224,6 +205,14 @@ export default function BlankMap() {
     }
   };
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      fileInputRef.current!.files = e.target.files;
+      uploadFile(file);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <div className="border-b">
@@ -292,9 +281,11 @@ export default function BlankMap() {
                   Upload Floor Plan
                 </Label>
                 <Input
+                  ref={fileInputRef}
                   id="file-upload"
                   type="file"
-                  ref={fileInputRef}
+                  accept=".usdz"
+                  onChange={handleFileChange}
                   className="mt-1"
                 />
               </div>
@@ -303,61 +294,74 @@ export default function BlankMap() {
         </div>
 
         <div className="md:w-3/4 flex flex-col gap-8">
-          <div className="flex flex-col md:flex-row gap-8">
-            <div
-              ref={imageContainerRef}
-              className={`relative w-full h-full bg-transparent rounded-lg shadow-inner overflow-hidden ${
-                isLoading ? "cursor-wait" : "cursor-crosshair"
-              } border`}
-              onClick={handleImageClick}
-            >
-              <div className="relative w-full h-full flex items-center justify-center">
-                <div ref={imageRef} className="relative">
-                  <Image
-                    src={floorPlanUrl}
-                    alt="Floor Plan"
-                    className="pointer-events-none max-h-full max-w-full object-contain"
-                    width={400}
-                    height={400}
-                    priority
-                  />
-                  {imageDimensions && point && (
-                    <div
-                      key={point.id}
-                      className="absolute w-10 h-10 -ml-4 -mt-4 rounded-full flex items-center justify-center cursor-pointer transition-all hover:scale-110 bg-red-600"
-                      style={{ left: point.x, top: point.y }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemovePoint();
-                      }}
-                    >
-                      <Router className="w-6 h-6 text-white" />
-                    </div>
-                  )}
-                </div>
-              </div>
-              <Card className="absolute bottom-4 right-4 p-2 text-sm">
-                Click to add router • Click on the router to remove
-              </Card>
+          {!floorPlanUrl ? (
+            <div className="flex flex-col items-center justify-center h-full">
+              <p className="text-lg font-bold text-gray-700">
+                Please upload a 3D model (.usdz) of the floor plan to get
+                started.
+              </p>
             </div>
-
-            {coverageUrl && (
+          ) : (
+            <div className="flex flex-col md:flex-row gap-8">
               <div
-                className={`relative w-full h-full bg-muted rounded-lg shadow-inner overflow-hidden border`}
+                ref={imageContainerRef}
+                className={`relative w-full h-full bg-transparent rounded-lg shadow-inner overflow-hidden ${
+                  isLoading ? "cursor-wait" : "cursor-crosshair"
+                } border`}
+                onClick={handleImageClick}
               >
-                <div className="relative w-full h-full flex items-center justify-center">
-                  <Image
-                    src={coverageUrl}
-                    alt="Coverage Map"
-                    className="pointer-events-none max-h-full max-w-full object-contain"
-                    width={400}
-                    height={400}
-                    priority
-                  />
-                </div>
+                {isUploading ? (
+                  <Loader />
+                ) : (
+                  <div className="relative w-full h-full flex items-center justify-center">
+                    <div ref={imageRef} className="relative">
+                      <Image
+                        src={floorPlanUrl}
+                        alt="Floor Plan"
+                        className="pointer-events-none max-h-full max-w-full object-contain"
+                        width={400}
+                        height={400}
+                        priority
+                      />
+                      {imageDimensions && point && (
+                        <div
+                          key={point.id}
+                          className="absolute w-10 h-10 -ml-4 -mt-4 rounded-full flex items-center justify-center cursor-pointer transition-all hover:scale-110 bg-red-600"
+                          style={{ left: point.x, top: point.y }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemovePoint();
+                          }}
+                        >
+                          <Router className="w-6 h-6 text-white" />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                <Card className="absolute bottom-4 right-4 p-2 text-sm">
+                  Click to add router • Click on the router to remove
+                </Card>
               </div>
-            )}
-          </div>
+
+              {coverageUrl && (
+                <div
+                  className={`relative w-full h-full bg-muted rounded-lg shadow-inner overflow-hidden border`}
+                >
+                  <div className="relative w-full h-full flex items-center justify-center">
+                    <Image
+                      src={coverageUrl}
+                      alt="Coverage Map"
+                      className="pointer-events-none max-h-full max-w-full object-contain"
+                      width={400}
+                      height={400}
+                      priority
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -367,8 +371,8 @@ export default function BlankMap() {
             ref={loaderRef}
             loadingStates={loadingStates}
             loading={isLoading}
-            duration={5000}
             loop={false}
+            duration={6000}
           />
         </div>
       )}

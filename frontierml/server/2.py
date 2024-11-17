@@ -225,6 +225,34 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/upload_usdz', methods=['POST'])
+def upload_usdz():
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    try:
+        # Ensure upload directory exists again just in case
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+        file = request.files['file']
+        usdz_path = os.path.join(UPLOAD_FOLDER, 'input.usdz')
+        obj_path = os.path.join(UPLOAD_FOLDER, 'converted.obj')
+
+        file.save(usdz_path)
+
+        processed_count = usdz_to_obj(usdz_path, obj_path)
+
+        layout, interior = convert_obj_to_2d(obj_path)
+
+        # Save floor plan after conversion
+        save_floor_plan(layout, interior)
+
+        return jsonify({'message': '.USDZ file uploaded successfully'})
+    except Exception as e:
+        print(f"Error in upload_usdz route: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/analyze', methods=['POST'])
 def analyze():
     print(request)
@@ -356,6 +384,7 @@ def get_image(timestamp=None):
     except Exception as e:
         print(f"Error serving image: {str(e)}")
         return jsonify({'error': 'Unable to load coverage image'}), 500
+
 
 @app.route('/get_floor_plan')
 @app.route('/get_floor_plan/<timestamp>')
