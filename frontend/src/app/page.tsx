@@ -1,101 +1,117 @@
-import Image from "next/image";
+"use client";
+
+import { AnimatedInstructions } from "@/components/ui/animated-instructions";
+import { Button } from "@/components/ui/button";
+import { FlipWords } from "@/components/ui/flip-words";
+import { InfiniteMovingCards } from "@/components/ui/infinite-moving-cards";
+import { ModeToggle } from "@/components/ui/mode-toggle";
+import { TextGenerateEffect } from "@/components/ui/text-generate-effect";
+import { features, steps } from "@/lib/utils";
+import { Download, Wifi } from "lucide-react";
+import Link from "next/link";
 
 export default function Home() {
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <div className="flex flex-col min-h-screen">
+      <header className="px-4 lg:px-6 h-14 flex items-center">
+        <Link className="flex items-center justify-center" href="#">
+          <Wifi className="h-6 w-6 text-[#fe0036]" />
+          <span className="sr-only">FrontierBeyond</span>
+        </Link>
+        <nav className="ml-auto flex items-center gap-4 sm:gap-6">
+          <Link
+            className="text-sm font-medium hover:underline underline-offset-4"
+            href="#features"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+            Features
+          </Link>
+          <Link
+            className="text-sm font-medium hover:underline underline-offset-4"
+            href="#how-it-works"
+          >
+            How It Works
+          </Link>
+          <Link
+            className="text-sm font-medium hover:underline underline-offset-4"
+            href="#download"
+          >
+            Download
+          </Link>
+          <ModeToggle />
+        </nav>
+      </header>
+      <main className="flex-1">
+        <section className="w-full py-12 md:py-24 lg:py-32 xl:py-48">
+          <>
+            <div className="container px-4 md:px-6">
+              <div className="flex flex-col items-center space-y-4 text-center">
+                <div className="space-y-2">
+                  <h1 className="text-3xl font-bold tracking-wide sm:text-4xl md:text-5xl lg:text-6xl/none">
+                    Optimize Your WiFi with{" "}
+                    <TextGenerateEffect words="FrontierBeyond" />
+                  </h1>
+                  <div className="mx-auto div-4 max-w-[700px] p-4 text-gray-500 md:text-xl dark:text-gray-400">
+                    Extend your
+                    <FlipWords words={["WiFi", "connectivity", "coverage"]} />
+                  </div>
+                </div>
+                <div className="space-x-4">
+                  <Link href="/home">
+                    <Button variant="ghost" className="bg-[#fe0036] text-white">
+                      Get started
+                    </Button>
+                  </Link>
+                  <Link href="#how-it-works">
+                    <Button variant="outline">Learn More</Button>
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </>
+        </section>
+        <section id="features" className="w-full">
+          <div className="container px-4 md:px-6">
+            <h2 className="text-3xl font-bold tracking-tighter sm:text-5xl text-center mb-12">
+              Key Features
+            </h2>
+            <InfiniteMovingCards
+              className="mx-auto"
+              speed="slow"
+              pauseOnHover={false}
+              items={features}
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
+          </div>
+        </section>
+        <section id="how-it-works" className="w-full py-12 md:py-24 lg:py-32">
+          <div className="container px-4 md:px-6">
+            <h2 className="text-3xl font-bold tracking-tighter sm:text-5xl text-center mb-12">
+              How It Works
+            </h2>
+            <AnimatedInstructions steps={steps} autoplay={true} />
+          </div>
+        </section>
+        <section
+          id="download"
+          className="w-full py-12 md:py-24 lg:py-32 bg-[#fe0036] text-white"
+        >
+          <div className="container px-4 md:px-6">
+            <div className="flex flex-col items-center space-y-6 text-center">
+              <h2 className="text-3xl font-bold tracking-tighter sm:text-5xl">
+                Ready to Boost Your WiFi?
+              </h2>
+              <p className="mx-auto max-w-[600px] text-white/90 md:text-xl">
+                Download the FrontierBeyond app now and experience seamless
+                connectivity throughout your home.
+              </p>
+              <div className="flex items-center p-2 space-x-4">
+                <Button className="bg-white text-[#fe0036] hover:bg-gray-100">
+                  <Download className="mr-2 h-4 w-4" /> Download now
+                </Button>
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
     </div>
   );
 }
