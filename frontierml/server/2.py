@@ -408,4 +408,4 @@ def get_floor_plan(timestamp=None):
 
 if __name__ == '__main__':
     print(f"Server starting with upload folder at: {UPLOAD_FOLDER}")
-    app.run(debug=True)
+    app.run(debug=True, port=5000)
