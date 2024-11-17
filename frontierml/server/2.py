@@ -274,7 +274,7 @@ def analyze():
         # Create visualization
         heatmap = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.uint8)
         coverage_vis = (combined_coverage * 255).astype(np.uint8)
-        heatmap = cv2.applyColorMap(coverage_vis, cv2.COLORMAP_JET)
+        heatmap = cv2.applyColorMap(coverage_vis, cv2.COLORMAP_TWILIGHT)
 
         # Mark boundaries
         heatmap[interior == 0] = [0, 0, 0]    # Black outside
