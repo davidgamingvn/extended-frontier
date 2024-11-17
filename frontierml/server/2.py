@@ -16,6 +16,22 @@ IMAGE_SIZE = 100
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+def save_floor_plan(layout, interior):
+    """Save the floor plan visualization as an image"""
+    # Create a 3-channel image (white background)
+    floor_plan = np.ones((IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.uint8) * 255
+
+    # Draw walls in black
+    floor_plan[layout > 0] = [0, 0, 0]
+
+    # Draw interior space in light gray
+    floor_plan[interior > 0] = [240, 240, 240]
+
+    # Save the floor plan
+    floor_plan_path = os.path.join(UPLOAD_FOLDER, 'latest_floor_plan.png')
+    cv2.imwrite(floor_plan_path, floor_plan)
+    return floor_plan_path
+
 def get_interior_mask(layout):
     """Get interior mask using flood fill from exterior"""
     mask = np.ones_like(layout)
@@ -72,11 +88,9 @@ def simulate_wifi(layout, device_positions, interior, iterations=50, decay_facto
     """
     coverage = np.zeros_like(layout, dtype=float)
 
-    # Initialize device positions with full strength
     for pos in device_positions:
         coverage[pos[0], pos[1]] = 1.0
 
-    # Larger kernel for more gradual spread
     kernel_size = 5
     kernel = np.array([
         [0.05, 0.1, 0.15, 0.1, 0.05],
@@ -90,25 +104,19 @@ def simulate_wifi(layout, device_positions, interior, iterations=50, decay_facto
         # Apply propagation kernel
         new_coverage = cv2.filter2D(coverage, -1, kernel)
 
-        # Progressive wall attenuation (walls affect signal less in initial propagation)
         wall_factor = 0.5 + (0.3 * i / iterations)  # Starts at 0.5, gradually increases to 0.8
         new_coverage[layout > 0] *= wall_factor
 
-        # Keep signal within interior
         new_coverage[interior == 0] = 0
 
-        # Apply distance-based decay
         new_coverage *= decay_factor
 
-        # Boost weak signals slightly to maintain better coverage
         weak_signals = (new_coverage > 0.1) & (new_coverage < 0.3)
         new_coverage[weak_signals] *= 1.1
 
-        # Ensure device positions maintain full strength
         for pos in device_positions:
             new_coverage[pos[0], pos[1]] = 1.0
 
-            # Add small area of strong signal around devices
             y, x = pos
             radius = 2
             y_min, y_max = max(0, y-radius), min(coverage.shape[0], y+radius+1)
@@ -120,10 +128,8 @@ def simulate_wifi(layout, device_positions, interior, iterations=50, decay_facto
 
         coverage = new_coverage
 
-    # Final normalization to ensure good distribution
     coverage = np.clip(coverage * 1.2, 0, 1)  # Boost signals slightly
 
-    # Smooth transition between strong and weak signals
     coverage = cv2.GaussianBlur(coverage, (5,5), 1)
 
     return coverage
@@ -133,7 +139,6 @@ def find_extender_positions(layout, interior, router_pos, n_extenders):
     extender_positions = []
     coverage_maps = []
 
-    # Initial coverage from router
     router_coverage = simulate_wifi(layout, [router_pos], interior)
 
     for _ in range(n_extenders):
@@ -143,14 +148,11 @@ def find_extender_positions(layout, interior, router_pos, n_extenders):
 
         y_coords, x_coords = np.where(interior > 0)
 
-        # Sample interior positions
         for i in range(0, len(y_coords), 2):
             y, x = y_coords[i], x_coords[i]
 
-            # Calculate distance from router
             dist = np.sqrt((y - router_pos[0])**2 + (x - router_pos[1])**2)
 
-            # Only consider positions far enough from router and other extenders
             too_close = False
             if dist < IMAGE_SIZE * 0.25:  # Slightly reduced minimum distance
                 continue
@@ -163,11 +165,9 @@ def find_extender_positions(layout, interior, router_pos, n_extenders):
             if too_close:
                 continue
 
-            # Calculate coverage with this extender
             current_devices = [router_pos] + extender_positions + [(y, x)]
             total_coverage = simulate_wifi(layout, current_devices, interior)
 
-            # Score based on total coverage area (lowered threshold for better distribution)
             coverage_score = np.sum(total_coverage > 0.15) / (IMAGE_SIZE * IMAGE_SIZE)
 
             if coverage_score > best_coverage:
@@ -192,19 +192,14 @@ def find_best_extender_position(layout, interior, router_pos):
     router_coverage = simulate_wifi(layout, [router_pos], interior)
     y_coords, x_coords = np.where(interior > 0)
 
-    # Sample interior positions
     for i in range(0, len(y_coords), 2):
         y, x = y_coords[i], x_coords[i]
 
-        # Calculate distance from router
         dist = np.sqrt((y - router_pos[0])**2 + (x - router_pos[1])**2)
 
-        # Only consider positions far enough from router (at least 30% of image size)
         if dist > IMAGE_SIZE * 0.3:
-            # Simulate coverage with both devices
             total_coverage = simulate_wifi(layout, [router_pos, (y, x)], interior)
 
-            # Score based on total coverage area
             coverage_score = float(np.sum(combined_coverage > 0.2)) / (IMAGE_SIZE * IMAGE_SIZE)
 
             if coverage_score > best_coverage:
@@ -217,7 +212,6 @@ def find_best_extender_position(layout, interior, router_pos):
 @app.route('/')
 def index():
     return render_template('index.html')
-
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
@@ -233,59 +227,51 @@ def analyze():
         router_y = float(request.form['router_y'])
         n_extenders = int(request.form.get('n_extenders', 2))
 
-        # Use absolute paths for file saving
         usdz_path = os.path.join(UPLOAD_FOLDER, 'input.usdz')
         obj_path = os.path.join(UPLOAD_FOLDER, 'converted.obj')
 
-        # Debug print
         print(f"Saving files to: {UPLOAD_FOLDER}")
         print(f"USDZ path: {usdz_path}")
         print(f"OBJ path: {obj_path}")
 
-        # Save the uploaded file
         file.save(usdz_path)
 
         processed_count = usdz_to_obj(usdz_path, obj_path)
+
         layout, interior = convert_obj_to_2d(obj_path)
 
-        # Convert router coordinates to image space
+        # Save floor plan after conversion
+        floor_plan_path = save_floor_plan(layout, interior)
+
         router_pos = (
             int(router_y * (IMAGE_SIZE-1)),
             int(router_x * (IMAGE_SIZE-1))
         )
 
-        # First simulate router coverage
         router_coverage = simulate_wifi(layout, [router_pos], interior)
 
-        # Find extender positions
         extender_positions, coverage_maps = find_extender_positions(
             layout, interior, router_pos, n_extenders
         )
 
-        # Use the last coverage map (includes all devices)
         if coverage_maps:
             combined_coverage = coverage_maps[-1]
         else:
             combined_coverage = router_coverage
 
-        # Calculate coverage score
         coverage_score = float(np.sum(combined_coverage > 0.2)) / (IMAGE_SIZE * IMAGE_SIZE)
 
-        # Create visualization
         heatmap = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.uint8)
         coverage_vis = (combined_coverage * 255).astype(np.uint8)
         heatmap = cv2.applyColorMap(coverage_vis, cv2.COLORMAP_TWILIGHT)
 
-        # Mark boundaries
         heatmap[interior == 0] = [0, 0, 0]    # Black outside
         heatmap[layout > 0] = [255, 255, 255] # White walls
 
-        # Mark router and extenders
         cv2.circle(heatmap, (router_pos[1], router_pos[0]), 2, (255, 255, 255), -1)
         for pos in extender_positions:
             cv2.circle(heatmap, (pos[1], pos[0]), 2, (0, 255, 0), -1)
 
-        # Save the coverage image with absolute path
         coverage_image_path = os.path.join(UPLOAD_FOLDER, 'latest_coverage.png')
         print(f"Saving coverage image to: {coverage_image_path}")
         success = cv2.imwrite(coverage_image_path, heatmap)
@@ -294,7 +280,6 @@ def analyze():
             print("Failed to save coverage image!")
             return jsonify({'error': 'Failed to save coverage image'}), 500
 
-        # Verify the file was saved
         if not os.path.exists(coverage_image_path):
             print("Coverage image file does not exist after saving!")
             return jsonify({'error': 'Coverage image not found after saving'}), 500
@@ -354,6 +339,47 @@ def get_image(timestamp=None):
     except Exception as e:
         print(f"Error serving image: {str(e)}")
         return jsonify({'error': 'Unable to load coverage image'}), 500
+
+@app.route('/get_floor_plan')
+@app.route('/get_floor_plan/<timestamp>')
+def get_floor_plan(timestamp=None):
+    """Endpoint to fetch the latest floor plan image"""
+    floor_plan_path = os.path.join(UPLOAD_FOLDER, 'latest_floor_plan.png')
+    print(f"Attempting to serve floor plan from: {floor_plan_path}")
+
+    # Create a default image if none exists
+    if not os.path.exists(floor_plan_path):
+        print("Floor plan not found, creating default image")
+        default_image = np.ones((IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.uint8) * 255
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(default_image, 'No floor plan yet', (10, IMAGE_SIZE//2),
+                   font, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
+
+        # Ensure the uploads directory exists
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+        # Save the default image
+        success = cv2.imwrite(floor_plan_path, default_image)
+        if not success:
+            print("Failed to save default floor plan!")
+            return jsonify({'error': 'Failed to save default floor plan'}), 500
+
+    try:
+        if not os.path.exists(floor_plan_path):
+            print("Floor plan still doesn't exist after attempted creation!")
+            return jsonify({'error': 'Floor plan file not found'}), 404
+
+        response = send_file(
+            floor_plan_path,
+            mimetype='image/png'
+        )
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
+    except Exception as e:
+        print(f"Error serving floor plan: {str(e)}")
+        return jsonify({'error': 'Unable to load floor plan image'}), 500
 
 if __name__ == '__main__':
     print(f"Server starting with upload folder at: {UPLOAD_FOLDER}")

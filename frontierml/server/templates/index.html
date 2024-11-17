@@ -24,7 +24,8 @@
                 border-color: #999;
             }
 
-            #coverage-map {
+            #coverage-map,
+            #floor-plan {
                 max-width: 100%;
                 margin: 20px 0;
             }
@@ -117,6 +118,7 @@
         <div id="results" style="display: none">
             <h2>Results</h2>
             <div id="stats"></div>
+            <div id="floor-plan-container"></div>
             <img id="coverage-map" style="display: none" />
         </div>
 
@@ -128,6 +130,9 @@
             const results = document.getElementById("results");
             const stats = document.getElementById("stats");
             const coverageMap = document.getElementById("coverage-map");
+            const floorPlanContainer = document.getElementById(
+                "floor-plan-container",
+            );
 
             // Handle drag and drop
             dropZone.addEventListener("dragover", (e) => {
@@ -152,6 +157,54 @@
             fileInput.addEventListener("change", (e) => {
                 handleFile(e.target.files[0]);
             });
+
+            function updateResults(data) {
+                // Format router and extender positions
+                let positionsHtml = `
+                    <div class="router-position">
+                        <strong>Main Router:</strong>
+                        (${document.getElementById("router-x").value}%, ${document.getElementById("router-y").value}%)
+                    </div>
+                `;
+
+                if (
+                    data.extender_positions &&
+                    data.extender_positions.length > 0
+                ) {
+                    positionsHtml += data.extender_positions
+                        .map(
+                            (pos, index) => `
+                            <div class="extender-position">
+                                <strong>Extender ${index + 1}:</strong>
+                                (${(pos.x * 100).toFixed(1)}%, ${(pos.y * 100).toFixed(1)}%)
+                            </div>
+                        `,
+                        )
+                        .join("");
+                }
+
+                // Update stats
+                stats.innerHTML = `
+                    <div class="positions">
+                        ${positionsHtml}
+                    </div>
+                    <p>Coverage Score: ${(data.coverage_score * 100).toFixed(1)}%</p>
+                `;
+
+                // Update floor plan
+                floorPlanContainer.innerHTML = `
+                    <div class="floor-plan">
+                        <h3>Floor Plan</h3>
+                        <img id="floor-plan" src="/get_floor_plan?t=${new Date().getTime()}"
+                             style="max-width: 100%; margin: 10px 0;" />
+                    </div>
+                `;
+
+                // Show coverage map
+                const timestamp = new Date().getTime();
+                coverageMap.src = `/get_image?t=${timestamp}`;
+                coverageMap.style.display = "block";
+            }
 
             function handleFile(file) {
                 if (!file || !file.name.endsWith(".usdz")) {
@@ -192,42 +245,7 @@
                         loading.style.display = "none";
                         results.style.display = "block";
 
-                        // Format router and extender positions
-                        let positionsHtml = `
-                            <div class="router-position">
-                                <strong>Main Router:</strong>
-                                (${document.getElementById("router-x").value}%, ${document.getElementById("router-y").value}%)
-                            </div>
-                        `;
-
-                        if (
-                            data.extender_positions &&
-                            data.extender_positions.length > 0
-                        ) {
-                            positionsHtml += data.extender_positions
-                                .map(
-                                    (pos, index) => `
-                                    <div class="extender-position">
-                                        <strong>Extender ${index + 1}:</strong>
-                                        (${(pos.x * 100).toFixed(1)}%, ${(pos.y * 100).toFixed(1)}%)
-                                    </div>
-                                `,
-                                )
-                                .join("");
-                        }
-
-                        // Update stats
-                        stats.innerHTML = `
-                            <div class="positions">
-                                ${positionsHtml}
-                            </div>
-                            <p>Coverage Score: ${(data.coverage_score * 100).toFixed(1)}%</p>
-                        `;
-
-                        // Show coverage map
-                        const timestamp = new Date().getTime();
-                        coverageMap.src = `/get_image?t=${timestamp}`; // Changed from data.image
-                        coverageMap.style.display = "block";
+                        updateResults(data);
                     })
                     .catch((err) => {
                         loading.style.display = "none";
