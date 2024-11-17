@@ -10,11 +10,28 @@ app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Create uploads folder in the same directory as the script
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
-IMAGE_SIZE = 100
+IMAGE_SIZE = 200
 
 # Create uploads directory if it doesn't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+
+def cleanup_old_files():
+    """Clean up old files from the upload folder"""
+    file_patterns = [
+        os.path.join(UPLOAD_FOLDER, 'input.usdz'),
+        os.path.join(UPLOAD_FOLDER, 'converted.obj'),
+        os.path.join(UPLOAD_FOLDER, 'latest_coverage.png'),
+        os.path.join(UPLOAD_FOLDER, 'latest_floor_plan.png')
+    ]
+
+    for pattern in file_patterns:
+        try:
+            if os.path.exists(pattern):
+                os.remove(pattern)
+        except Exception as e:
+            print(f"Error cleaning up {pattern}: {str(e)}")
 
 def save_floor_plan(layout, interior):
     """Save the floor plan visualization as an image"""
@@ -75,62 +92,27 @@ def convert_obj_to_2d(obj_file):
     interior = get_interior_mask(img)
     return img, interior
 
+
 def simulate_wifi(layout, device_positions, interior, iterations=50, decay_factor=0.92):
     """
-    Simulate WiFi propagation with more gradual signal distribution
-
-    Parameters:
-    - layout: 2D array of walls
-    - device_positions: list of (y,x) coordinates for WiFi devices
-    - interior: mask of interior space
-    - iterations: number of propagation steps (increased for better spread)
-    - decay_factor: signal decay per step (increased for better reach)
+    Simulate WiFi propagation where each point takes the strongest available signal
     """
-    coverage = np.zeros_like(layout, dtype=float)
+    coverage = np.zeros((IMAGE_SIZE, IMAGE_SIZE), dtype=float)
+    y_coords, x_coords = np.meshgrid(np.arange(IMAGE_SIZE), np.arange(IMAGE_SIZE), indexing='ij')
 
     for pos in device_positions:
-        coverage[pos[0], pos[1]] = 1.0
+        # Calculate distance from current device to all points
+        distances = np.sqrt((y_coords - pos[0])**2 + (x_coords - pos[1])**2)
 
-    kernel_size = 5
-    kernel = np.array([
-        [0.05, 0.1, 0.15, 0.1, 0.05],
-        [0.1, 0.2, 0.25, 0.2, 0.1],
-        [0.15, 0.25, 0.0, 0.25, 0.15],
-        [0.1, 0.2, 0.25, 0.2, 0.1],
-        [0.05, 0.1, 0.15, 0.1, 0.05]
-    ])
-    # Multiple propagation passes with different characteristics
-    for i in range(iterations):
-        # Apply propagation kernel
-        new_coverage = cv2.filter2D(coverage, -1, kernel)
+        # Create circular gradient
+        max_range = IMAGE_SIZE * 0.5  # Reduced range to encourage spacing
+        signal_strength = np.maximum(0, 1 - (distances / max_range))
 
-        wall_factor = 0.5 + (0.3 * i / iterations)  # Starts at 0.5, gradually increases to 0.8
-        new_coverage[layout > 0] *= wall_factor
+        # Only keep the stronger signal at each point
+        coverage = np.where(signal_strength > coverage, signal_strength, coverage)
 
-        new_coverage[interior == 0] = 0
-
-        new_coverage *= decay_factor
-
-        weak_signals = (new_coverage > 0.1) & (new_coverage < 0.3)
-        new_coverage[weak_signals] *= 1.1
-
-        for pos in device_positions:
-            new_coverage[pos[0], pos[1]] = 1.0
-
-            y, x = pos
-            radius = 2
-            y_min, y_max = max(0, y-radius), min(coverage.shape[0], y+radius+1)
-            x_min, x_max = max(0, x-radius), min(coverage.shape[1], x+radius+1)
-            new_coverage[y_min:y_max, x_min:x_max] = np.maximum(
-                new_coverage[y_min:y_max, x_min:x_max],
-                0.8
-            )
-
-        coverage = new_coverage
-
-    coverage = np.clip(coverage * 1.2, 0, 1)  # Boost signals slightly
-
-    coverage = cv2.GaussianBlur(coverage, (5,5), 1)
+    # Mask out the exterior
+    coverage[interior == 0] = 0
 
     return coverage
 
@@ -215,6 +197,9 @@ def index():
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
+
+    # Clean up old files first
+    cleanup_old_files()
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
 
@@ -261,24 +246,17 @@ def analyze():
 
         coverage_score = float(np.sum(combined_coverage > 0.2)) / (IMAGE_SIZE * IMAGE_SIZE)
 
-        heatmap = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.uint8)
+        # Create a colored heatmap
         coverage_vis = (combined_coverage * 255).astype(np.uint8)
-        heatmap = cv2.applyColorMap(coverage_vis, cv2.COLORMAP_TWILIGHT)
-
-        heatmap[interior == 0] = [0, 0, 0]    # Black outside
-        heatmap[layout > 0] = [255, 255, 255] # White walls
-
-        cv2.circle(heatmap, (router_pos[1], router_pos[0]), 2, (255, 255, 255), -1)
+        heatmap = cv2.applyColorMap(coverage_vis, cv2.COLORMAP_JET)  # Using JET colormap for better visibility
+        heatmap[interior == 0] = [0, 0, 0]
+        # Add device markers
+        cv2.circle(heatmap, (router_pos[1], router_pos[0]), 3, (255, 255, 255), -1)  # Router in white
         for pos in extender_positions:
-            cv2.circle(heatmap, (pos[1], pos[0]), 2, (0, 255, 0), -1)
+            cv2.circle(heatmap, (pos[1], pos[0]), 3, (0, 255, 0), -1)  # Extenders in green
 
         coverage_image_path = os.path.join(UPLOAD_FOLDER, 'latest_coverage.png')
-        print(f"Saving coverage image to: {coverage_image_path}")
-        success = cv2.imwrite(coverage_image_path, heatmap)
-
-        if not success:
-            print("Failed to save coverage image!")
-            return jsonify({'error': 'Failed to save coverage image'}), 500
+        cv2.imwrite(coverage_image_path, heatmap)
 
         if not os.path.exists(coverage_image_path):
             print("Coverage image file does not exist after saving!")
@@ -383,4 +361,5 @@ def get_floor_plan(timestamp=None):
 
 if __name__ == '__main__':
     print(f"Server starting with upload folder at: {UPLOAD_FOLDER}")
+    cleanup_old_files()
     app.run(debug=True)
