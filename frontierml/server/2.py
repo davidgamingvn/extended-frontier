@@ -1,15 +1,14 @@
 from flask import Flask, request, render_template, jsonify, send_file
-from flask_cors import CORS
 import os
 import numpy as np
 import cv2
 from scipy.spatial import cKDTree
 from toobj import usdz_to_obj
+from flask_cors import CORS
 import time
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes and origins
-
+CORS(app)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Create uploads folder in the same directory as the script
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
@@ -18,6 +17,23 @@ IMAGE_SIZE = 200
 # Create uploads directory if it doesn't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+
+def cleanup_old_files():
+    """Clean up old files from the upload folder"""
+    file_patterns = [
+        os.path.join(UPLOAD_FOLDER, 'input.usdz'),
+        os.path.join(UPLOAD_FOLDER, 'converted.obj'),
+        os.path.join(UPLOAD_FOLDER, 'latest_coverage.png'),
+        os.path.join(UPLOAD_FOLDER, 'latest_floor_plan.png')
+    ]
+
+    for pattern in file_patterns:
+        try:
+            if os.path.exists(pattern):
+                os.remove(pattern)
+        except Exception as e:
+            print(f"Error cleaning up {pattern}: {str(e)}")
 
 
 def save_floor_plan(layout, interior):
@@ -84,58 +100,28 @@ def convert_obj_to_2d(obj_file):
     return img, interior
 
 
-
 def simulate_wifi(layout, device_positions, interior, iterations=50, decay_factor=0.92):
     """
     Simulate WiFi propagation where each point takes the strongest available signal
     """
     coverage = np.zeros((IMAGE_SIZE, IMAGE_SIZE), dtype=float)
-    y_coords, x_coords = np.meshgrid(np.arange(IMAGE_SIZE), np.arange(IMAGE_SIZE), indexing='ij')
+    y_coords, x_coords = np.meshgrid(
+        np.arange(IMAGE_SIZE), np.arange(IMAGE_SIZE), indexing='ij')
 
     for pos in device_positions:
-        coverage[pos[0], pos[1]] = 1.0
+        # Calculate distance from current device to all points
+        distances = np.sqrt((y_coords - pos[0])**2 + (x_coords - pos[1])**2)
 
-    kernel_size = 5
-    kernel = np.array([
-        [0.05, 0.1, 0.15, 0.1, 0.05],
-        [0.1, 0.2, 0.25, 0.2, 0.1],
-        [0.15, 0.25, 0.0, 0.25, 0.15],
-        [0.1, 0.2, 0.25, 0.2, 0.1],
-        [0.05, 0.1, 0.15, 0.1, 0.05]
-    ])
-    # Multiple propagation passes with different characteristics
-    for i in range(iterations):
-        # Apply propagation kernel
-        new_coverage = cv2.filter2D(coverage, -1, kernel)
+        # Create circular gradient
+        max_range = IMAGE_SIZE * 0.5  # Reduced range to encourage spacing
+        signal_strength = np.maximum(0, 1 - (distances / max_range))
 
-        # Starts at 0.5, gradually increases to 0.8
-        wall_factor = 0.5 + (0.3 * i / iterations)
-        new_coverage[layout > 0] *= wall_factor
+        # Only keep the stronger signal at each point
+        coverage = np.where(signal_strength > coverage,
+                            signal_strength, coverage)
 
-        new_coverage[interior == 0] = 0
-
-        new_coverage *= decay_factor
-
-        weak_signals = (new_coverage > 0.1) & (new_coverage < 0.3)
-        new_coverage[weak_signals] *= 1.1
-
-        for pos in device_positions:
-            new_coverage[pos[0], pos[1]] = 1.0
-
-            y, x = pos
-            radius = 2
-            y_min, y_max = max(0, y-radius), min(coverage.shape[0], y+radius+1)
-            x_min, x_max = max(0, x-radius), min(coverage.shape[1], x+radius+1)
-            new_coverage[y_min:y_max, x_min:x_max] = np.maximum(
-                new_coverage[y_min:y_max, x_min:x_max],
-                0.8
-            )
-
-        coverage = new_coverage
-
-    coverage = np.clip(coverage * 1.2, 0, 1)  # Boost signals slightly
-
-    coverage = cv2.GaussianBlur(coverage, (5, 5), 1)
+    # Mask out the exterior
+    coverage[interior == 0] = 0
 
     return coverage
 
@@ -255,9 +241,10 @@ def upload_usdz():
 
 @app.route('/analyze', methods=['POST'])
 def analyze():
-    print(request)
+
+    # Clean up old files first
+    cleanup_old_files()
     if 'file' not in request.files:
-        print("printing from error")
         return jsonify({'error': 'No file uploaded'}), 400
 
     try:
@@ -268,8 +255,6 @@ def analyze():
         router_x = float(request.form['router_x'])
         router_y = float(request.form['router_y'])
         n_extenders = int(request.form.get('n_extenders', 2))
-
-        print(router_x, router_y, n_extenders)
 
         usdz_path = os.path.join(UPLOAD_FOLDER, 'input.usdz')
         obj_path = os.path.join(UPLOAD_FOLDER, 'converted.obj')
@@ -308,24 +293,20 @@ def analyze():
 
         # Create a colored heatmap
         coverage_vis = (combined_coverage * 255).astype(np.uint8)
-        heatmap = cv2.applyColorMap(coverage_vis, cv2.COLORMAP_TWILIGHT)
-
-        heatmap[interior == 0] = [0, 0, 0]    # Black outside
-        heatmap[layout > 0] = [255, 255, 255]  # White walls
-
+        # Using JET colormap for better visibility
+        heatmap = cv2.applyColorMap(coverage_vis, cv2.COLORMAP_JET)
+        heatmap[interior == 0] = [0, 0, 0]
+        # Add device markers
+        # Router in white
         cv2.circle(heatmap, (router_pos[1],
-                   router_pos[0]), 2, (255, 255, 255), -1)
+                   router_pos[0]), 3, (255, 255, 255), -1)
         for pos in extender_positions:
-            cv2.circle(heatmap, (pos[1], pos[0]), 3, (0, 255, 0), -1)  # Extenders in green
+            cv2.circle(heatmap, (pos[1], pos[0]), 3,
+                       (0, 255, 0), -1)  # Extenders in green
 
         coverage_image_path = os.path.join(
             UPLOAD_FOLDER, 'latest_coverage.png')
-        print(f"Saving coverage image to: {coverage_image_path}")
-        success = cv2.imwrite(coverage_image_path, heatmap)
-
-        if not success:
-            print("Failed to save coverage image!")
-            return jsonify({'error': 'Failed to save coverage image'}), 500
+        cv2.imwrite(coverage_image_path, heatmap)
 
         if not os.path.exists(coverage_image_path):
             print("Coverage image file does not exist after saving!")
@@ -376,11 +357,14 @@ def get_image(timestamp=None):
             print("Image still doesn't exist after attempted creation!")
             return jsonify({'error': 'Image file not found'}), 404
 
-        return send_file(
+        response = send_file(
             coverage_image_path,
-            mimetype='image/png',
-            as_attachment=False
+            mimetype='image/png'
         )
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
     except Exception as e:
         print(f"Error serving image: {str(e)}")
         return jsonify({'error': 'Unable to load coverage image'}), 500
@@ -416,11 +400,14 @@ def get_floor_plan(timestamp=None):
             print("Floor plan still doesn't exist after attempted creation!")
             return jsonify({'error': 'Floor plan file not found'}), 404
 
-        return send_file(
+        response = send_file(
             floor_plan_path,
-            mimetype='image/png',
-            as_attachment=False
+            mimetype='image/png'
         )
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        return response
     except Exception as e:
         print(f"Error serving floor plan: {str(e)}")
         return jsonify({'error': 'Unable to load floor plan image'}), 500
