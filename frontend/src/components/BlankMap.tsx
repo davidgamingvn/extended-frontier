@@ -48,7 +48,10 @@ export default function BlankMap() {
   useEffect(() => {
     const fetchFloorPlan = async () => {
       try {
-        const response = await fetch(`${BACKEND_URL}/get_floor_plan`);
+        let timestamp = new Date().getTime();
+        const response = await fetch(
+          `${BACKEND_URL}/get_floor_plan?t=${timestamp}`
+        );
         if (!response.ok) {
           throw new Error("Failed to fetch floor plan image");
         }
@@ -61,7 +64,7 @@ export default function BlankMap() {
     };
 
     fetchFloorPlan();
-  }, []);
+  }, [coverageUrl]);
 
   useEffect(() => {
     const updateImageDimensions = () => {
