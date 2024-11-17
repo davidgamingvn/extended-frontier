@@ -362,7 +362,6 @@ def get_image(timestamp=None):
         print(f"Error serving image: {str(e)}")
         return jsonify({'error': 'Unable to load coverage image'}), 500
 
-
 @app.route('/get_floor_plan')
 @app.route('/get_floor_plan/<timestamp>')
 def get_floor_plan(timestamp=None):
@@ -408,4 +407,6 @@ def get_floor_plan(timestamp=None):
 
 if __name__ == '__main__':
     print(f"Server starting with upload folder at: {UPLOAD_FOLDER}")
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=8080, host='0.0.0.0')
+
+# run with `nohup gunicorn --bind 0.0.0.0:8080 2:app &` from server directory
