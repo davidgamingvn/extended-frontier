@@ -1,14 +1,14 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import Image from "next/image";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Router } from "lucide-react";
-import { Label } from "./ui/label";
-import { Input } from "./ui/input";
 import { BACKEND_URL } from "@/lib/utils";
+import { Router } from "lucide-react";
+import Image from "next/image";
+import { useEffect, useRef, useState } from "react";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 
 interface Point {
   id: number;
@@ -146,9 +146,6 @@ export default function BlankMap() {
       // Save the point
       const saveResponse = await fetch(`${BACKEND_URL}/analyze`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
         body: formData,
       });
 
@@ -160,8 +157,18 @@ export default function BlankMap() {
       const data = await saveResponse.json();
       console.log(data);
 
+      let timestamp = new Date().getTime();
+      const imageResponse = await fetch(
+        `${BACKEND_URL}/get_image?t=${timestamp}`
+      );
+      if (!imageResponse.ok) {
+        throw new Error("Failed to fetch updated image");
+      }
+      const imageBlob = await imageResponse.blob();
+      const imageObjectUrl = URL.createObjectURL(imageBlob);
+
       // Update the image with a cache-busting parameter
-      setImageUrl(data.image + `?t=${Date.now()}`);
+      setImageUrl(imageObjectUrl);
       setPoint(null); // Clear the point since it's now part of the image
 
       toast({

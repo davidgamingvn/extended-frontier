@@ -1,4 +1,5 @@
 from flask import Flask, request, render_template, jsonify, send_file
+from flask_cors import CORS
 import os
 import numpy as np
 import cv2
@@ -7,6 +8,8 @@ from toobj import usdz_to_obj
 import time
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes and origins
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Create uploads folder in the same directory as the script
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
@@ -15,6 +18,7 @@ IMAGE_SIZE = 100
 # Create uploads directory if it doesn't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
 
 def save_floor_plan(layout, interior):
     """Save the floor plan visualization as an image"""
@@ -32,13 +36,16 @@ def save_floor_plan(layout, interior):
     cv2.imwrite(floor_plan_path, floor_plan)
     return floor_plan_path
 
+
 def get_interior_mask(layout):
     """Get interior mask using flood fill from exterior"""
     mask = np.ones_like(layout)
     mask[layout > 0] = 0
     exterior = mask.copy()
-    cv2.floodFill(exterior, None, (0,0), 0)
+    cv2.floodFill(exterior, None, (0, 0), 0)
     return (exterior > 0).astype(np.uint8)
+
+
 def convert_obj_to_2d(obj_file):
     """Convert 3D OBJ to 2D top-down view with 5% padding"""
     vertices = []
@@ -64,7 +71,8 @@ def convert_obj_to_2d(obj_file):
     max_coords += padding
 
     # Scale vertices to image space with padding
-    vertices = ((vertices - min_coords) / (max_coords - min_coords) * (IMAGE_SIZE-2) + 1).astype(int)
+    vertices = ((vertices - min_coords) / (max_coords - min_coords)
+                * (IMAGE_SIZE-2) + 1).astype(int)
 
     img = np.zeros((IMAGE_SIZE, IMAGE_SIZE), dtype=np.uint8)
     for face in faces:
@@ -74,6 +82,7 @@ def convert_obj_to_2d(obj_file):
 
     interior = get_interior_mask(img)
     return img, interior
+
 
 def simulate_wifi(layout, device_positions, interior, iterations=50, decay_factor=0.92):
     """
@@ -104,7 +113,8 @@ def simulate_wifi(layout, device_positions, interior, iterations=50, decay_facto
         # Apply propagation kernel
         new_coverage = cv2.filter2D(coverage, -1, kernel)
 
-        wall_factor = 0.5 + (0.3 * i / iterations)  # Starts at 0.5, gradually increases to 0.8
+        # Starts at 0.5, gradually increases to 0.8
+        wall_factor = 0.5 + (0.3 * i / iterations)
         new_coverage[layout > 0] *= wall_factor
 
         new_coverage[interior == 0] = 0
@@ -130,9 +140,10 @@ def simulate_wifi(layout, device_positions, interior, iterations=50, decay_facto
 
     coverage = np.clip(coverage * 1.2, 0, 1)  # Boost signals slightly
 
-    coverage = cv2.GaussianBlur(coverage, (5,5), 1)
+    coverage = cv2.GaussianBlur(coverage, (5, 5), 1)
 
     return coverage
+
 
 def find_extender_positions(layout, interior, router_pos, n_extenders):
     """Find optimal positions for multiple extenders with updated coverage threshold"""
@@ -168,7 +179,8 @@ def find_extender_positions(layout, interior, router_pos, n_extenders):
             current_devices = [router_pos] + extender_positions + [(y, x)]
             total_coverage = simulate_wifi(layout, current_devices, interior)
 
-            coverage_score = np.sum(total_coverage > 0.15) / (IMAGE_SIZE * IMAGE_SIZE)
+            coverage_score = np.sum(
+                total_coverage > 0.15) / (IMAGE_SIZE * IMAGE_SIZE)
 
             if coverage_score > best_coverage:
                 best_coverage = coverage_score
@@ -182,6 +194,7 @@ def find_extender_positions(layout, interior, router_pos, n_extenders):
         coverage_maps.append(best_coverage_map)
 
     return extender_positions, coverage_maps
+
 
 def find_best_extender_position(layout, interior, router_pos):
     """Find the best position for a WiFi extender"""
@@ -198,9 +211,11 @@ def find_best_extender_position(layout, interior, router_pos):
         dist = np.sqrt((y - router_pos[0])**2 + (x - router_pos[1])**2)
 
         if dist > IMAGE_SIZE * 0.3:
-            total_coverage = simulate_wifi(layout, [router_pos, (y, x)], interior)
+            total_coverage = simulate_wifi(
+                layout, [router_pos, (y, x)], interior)
 
-            coverage_score = float(np.sum(combined_coverage > 0.2)) / (IMAGE_SIZE * IMAGE_SIZE)
+            coverage_score = float(
+                np.sum(combined_coverage > 0.2)) / (IMAGE_SIZE * IMAGE_SIZE)
 
             if coverage_score > best_coverage:
                 best_coverage = coverage_score
@@ -209,13 +224,17 @@ def find_best_extender_position(layout, interior, router_pos):
 
     return best_pos, best_coverage, best_total_coverage
 
+
 @app.route('/')
 def index():
     return render_template('index.html')
 
+
 @app.route('/analyze', methods=['POST'])
 def analyze():
+    print(request)
     if 'file' not in request.files:
+        print("printing from error")
         return jsonify({'error': 'No file uploaded'}), 400
 
     try:
@@ -226,6 +245,8 @@ def analyze():
         router_x = float(request.form['router_x'])
         router_y = float(request.form['router_y'])
         n_extenders = int(request.form.get('n_extenders', 2))
+
+        print(router_x, router_y, n_extenders)
 
         usdz_path = os.path.join(UPLOAD_FOLDER, 'input.usdz')
         obj_path = os.path.join(UPLOAD_FOLDER, 'converted.obj')
@@ -259,20 +280,23 @@ def analyze():
         else:
             combined_coverage = router_coverage
 
-        coverage_score = float(np.sum(combined_coverage > 0.2)) / (IMAGE_SIZE * IMAGE_SIZE)
+        coverage_score = float(
+            np.sum(combined_coverage > 0.2)) / (IMAGE_SIZE * IMAGE_SIZE)
 
         heatmap = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.uint8)
         coverage_vis = (combined_coverage * 255).astype(np.uint8)
         heatmap = cv2.applyColorMap(coverage_vis, cv2.COLORMAP_TWILIGHT)
 
         heatmap[interior == 0] = [0, 0, 0]    # Black outside
-        heatmap[layout > 0] = [255, 255, 255] # White walls
+        heatmap[layout > 0] = [255, 255, 255]  # White walls
 
-        cv2.circle(heatmap, (router_pos[1], router_pos[0]), 2, (255, 255, 255), -1)
+        cv2.circle(heatmap, (router_pos[1],
+                   router_pos[0]), 2, (255, 255, 255), -1)
         for pos in extender_positions:
             cv2.circle(heatmap, (pos[1], pos[0]), 2, (0, 255, 0), -1)
 
-        coverage_image_path = os.path.join(UPLOAD_FOLDER, 'latest_coverage.png')
+        coverage_image_path = os.path.join(
+            UPLOAD_FOLDER, 'latest_coverage.png')
         print(f"Saving coverage image to: {coverage_image_path}")
         success = cv2.imwrite(coverage_image_path, heatmap)
 
@@ -300,6 +324,7 @@ def analyze():
         print(f"Error in analyze route: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
+
 @app.route('/get_image')
 @app.route('/get_image/<timestamp>')
 def get_image(timestamp=None):
@@ -312,7 +337,7 @@ def get_image(timestamp=None):
         default_image = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.uint8)
         font = cv2.FONT_HERSHEY_SIMPLEX
         cv2.putText(default_image, 'No analysis yet', (10, IMAGE_SIZE//2),
-                   font, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+                    font, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
 
         # Ensure the uploads directory exists
         os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -328,17 +353,15 @@ def get_image(timestamp=None):
             print("Image still doesn't exist after attempted creation!")
             return jsonify({'error': 'Image file not found'}), 404
 
-        response = send_file(
+        return send_file(
             coverage_image_path,
-            mimetype='image/png'
+            mimetype='image/png',
+            as_attachment=False
         )
-        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
-        return response
     except Exception as e:
         print(f"Error serving image: {str(e)}")
         return jsonify({'error': 'Unable to load coverage image'}), 500
+
 
 @app.route('/get_floor_plan')
 @app.route('/get_floor_plan/<timestamp>')
@@ -350,10 +373,11 @@ def get_floor_plan(timestamp=None):
     # Create a default image if none exists
     if not os.path.exists(floor_plan_path):
         print("Floor plan not found, creating default image")
-        default_image = np.ones((IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.uint8) * 255
+        default_image = np.ones(
+            (IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.uint8) * 255
         font = cv2.FONT_HERSHEY_SIMPLEX
         cv2.putText(default_image, 'No floor plan yet', (10, IMAGE_SIZE//2),
-                   font, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
+                    font, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
 
         # Ensure the uploads directory exists
         os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -380,6 +404,7 @@ def get_floor_plan(timestamp=None):
     except Exception as e:
         print(f"Error serving floor plan: {str(e)}")
         return jsonify({'error': 'Unable to load floor plan image'}), 500
+
 
 if __name__ == '__main__':
     print(f"Server starting with upload folder at: {UPLOAD_FOLDER}")
