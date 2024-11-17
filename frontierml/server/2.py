@@ -362,7 +362,6 @@ def get_image(timestamp=None):
         print(f"Error serving image: {str(e)}")
         return jsonify({'error': 'Unable to load coverage image'}), 500
 
-
 @app.route('/get_floor_plan')
 @app.route('/get_floor_plan/<timestamp>')
 def get_floor_plan(timestamp=None):
