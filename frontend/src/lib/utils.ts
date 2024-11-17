@@ -51,4 +51,5 @@ export const steps = [
   },
 ];
 
-export const BACKEND_URL = "http://34.55.193.30/";
+export const BACKEND_URL =
+  "https://frontiermap-backend-684147459334.us-central1.run.app/";

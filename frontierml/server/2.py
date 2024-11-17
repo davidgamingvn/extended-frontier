@@ -393,14 +393,11 @@ def get_floor_plan(timestamp=None):
             print("Floor plan still doesn't exist after attempted creation!")
             return jsonify({'error': 'Floor plan file not found'}), 404
 
-        response = send_file(
+        return send_file(
             floor_plan_path,
-            mimetype='image/png'
+            mimetype='image/png',
+            as_attachment=False
         )
-        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
-        response.headers['Pragma'] = 'no-cache'
-        response.headers['Expires'] = '0'
-        return response
     except Exception as e:
         print(f"Error serving floor plan: {str(e)}")
         return jsonify({'error': 'Unable to load floor plan image'}), 500

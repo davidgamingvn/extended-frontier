@@ -28,7 +28,7 @@ export default function BlankMap() {
   const [point, setPoint] = useState<Point | null>(null);
   const [imageDimensions, setImageDimensions] =
     useState<ImageDimensions | null>(null);
-  const [floorPlanUrl, setFloorPlanUrl] = useState("/latest_floor_plan.png");
+  const [floorPlanUrl, setFloorPlanUrl] = useState("/default_floor_plan.png");
   const [coverageUrl, setCoverageUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [extendersCount, setExtendersCount] = useState(2);
