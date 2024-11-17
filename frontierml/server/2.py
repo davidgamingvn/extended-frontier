@@ -13,7 +13,7 @@ CORS(app)  # Enable CORS for all routes and origins
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Create uploads folder in the same directory as the script
 UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
-IMAGE_SIZE = 100
+IMAGE_SIZE = 200
 
 # Create uploads directory if it doesn't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -84,18 +84,13 @@ def convert_obj_to_2d(obj_file):
     return img, interior
 
 
+
 def simulate_wifi(layout, device_positions, interior, iterations=50, decay_factor=0.92):
     """
-    Simulate WiFi propagation with more gradual signal distribution
-
-    Parameters:
-    - layout: 2D array of walls
-    - device_positions: list of (y,x) coordinates for WiFi devices
-    - interior: mask of interior space
-    - iterations: number of propagation steps (increased for better spread)
-    - decay_factor: signal decay per step (increased for better reach)
+    Simulate WiFi propagation where each point takes the strongest available signal
     """
-    coverage = np.zeros_like(layout, dtype=float)
+    coverage = np.zeros((IMAGE_SIZE, IMAGE_SIZE), dtype=float)
+    y_coords, x_coords = np.meshgrid(np.arange(IMAGE_SIZE), np.arange(IMAGE_SIZE), indexing='ij')
 
     for pos in device_positions:
         coverage[pos[0], pos[1]] = 1.0
@@ -283,7 +278,7 @@ def analyze():
         coverage_score = float(
             np.sum(combined_coverage > 0.2)) / (IMAGE_SIZE * IMAGE_SIZE)
 
-        heatmap = np.zeros((IMAGE_SIZE, IMAGE_SIZE, 3), dtype=np.uint8)
+        # Create a colored heatmap
         coverage_vis = (combined_coverage * 255).astype(np.uint8)
         heatmap = cv2.applyColorMap(coverage_vis, cv2.COLORMAP_TWILIGHT)
 
@@ -293,7 +288,7 @@ def analyze():
         cv2.circle(heatmap, (router_pos[1],
                    router_pos[0]), 2, (255, 255, 255), -1)
         for pos in extender_positions:
-            cv2.circle(heatmap, (pos[1], pos[0]), 2, (0, 255, 0), -1)
+            cv2.circle(heatmap, (pos[1], pos[0]), 3, (0, 255, 0), -1)  # Extenders in green
 
         coverage_image_path = os.path.join(
             UPLOAD_FOLDER, 'latest_coverage.png')
@@ -404,4 +399,5 @@ def get_floor_plan(timestamp=None):
 
 if __name__ == '__main__':
     print(f"Server starting with upload folder at: {UPLOAD_FOLDER}")
+    cleanup_old_files()
     app.run(debug=True)
